@@ -1868,3 +1868,154 @@ fn test_log_count() {
     [EOF]
     ");
 }
+
+#[test]
+fn test_log_search_contains() {
+    let test_env = TestEnvironment::default();
+    test_env.run_jj_in(".", ["git", "init", "repo"]).success();
+    let work_dir = test_env.work_dir("repo");
+
+    work_dir.write_file("file1", "foo\n");
+    work_dir.run_jj(["describe", "-m", "first"]).success();
+    work_dir.run_jj(["new", "-m", "second"]).success();
+    work_dir.write_file("file2", "bar\n");
+    work_dir.run_jj(["new", "-m", "third"]).success();
+    work_dir.write_file("file1", "foo\nbaz\n");
+
+    // Search for text added in a specific commit
+    let output = work_dir.run_jj(["log", "-T", "description", "--search-contains", "bar"]);
+    insta::assert_snapshot!(output, @"
+    ○  second
+    │
+    ~
+    [EOF]
+    ");
+
+    // Search for text that appears in multiple commits
+    let output = work_dir.run_jj(["log", "-T", "description", "--search-contains", "foo"]);
+    insta::assert_snapshot!(output, @"
+    ○  first
+    │
+    ~
+    [EOF]
+    ");
+
+    // Search with no matches
+    let output = work_dir.run_jj(["log", "-T", "description", "--search-contains", "nonexistent"]);
+    insta::assert_snapshot!(output, @"");
+
+    // Combine --search-contains with -r
+    let output = work_dir.run_jj([
+        "log",
+        "-T",
+        "description",
+        "--search-contains",
+        "foo",
+        "-r",
+        "@",
+    ]);
+    insta::assert_snapshot!(output, @"");
+
+    // Combine --search-contains with path filtering
+    let output = work_dir.run_jj([
+        "log",
+        "-T",
+        "description",
+        "--search-contains",
+        "foo",
+        "file1",
+    ]);
+    insta::assert_snapshot!(output, @"
+    ○  first
+    │
+    ~
+    [EOF]
+    ");
+
+    // --search-contains overrides default revset (like paths do)
+    test_env.add_config(r#"revsets.log = "root()""#);
+    let output = work_dir.run_jj(["log", "-T", "description", "--search-contains", "bar"]);
+    insta::assert_snapshot!(output, @"
+    ○  second
+    │
+    ~
+    [EOF]
+    ");
+
+    // String pattern kinds: substring (explicit)
+    let output = work_dir.run_jj([
+        "log",
+        "-T",
+        "description",
+        "--search-contains",
+        "substring:ba",
+    ]);
+    insta::assert_snapshot!(output, @"
+    @  third
+    ○  second
+    │
+    ~
+    [EOF]
+    ");
+
+    // String pattern kinds: exact
+    let output = work_dir.run_jj([
+        "log",
+        "-T",
+        "description",
+        "--search-contains",
+        "exact:bar",
+    ]);
+    insta::assert_snapshot!(output, @"
+    ○  second
+    │
+    ~
+    [EOF]
+    ");
+
+    // String pattern kinds: regex
+    let output = work_dir.run_jj([
+        "log",
+        "-T",
+        "description",
+        "--search-contains",
+        "regex:ba[rz]",
+    ]);
+    insta::assert_snapshot!(output, @"
+    @  third
+    ○  second
+    │
+    ~
+    [EOF]
+    ");
+
+    // String pattern kinds: glob
+    let output = work_dir.run_jj([
+        "log",
+        "-T",
+        "description",
+        "--search-contains",
+        "glob:b*r",
+    ]);
+    insta::assert_snapshot!(output, @"
+    ○  second
+    │
+    ~
+    [EOF]
+    ");
+
+    // Invalid pattern kind
+    let output = work_dir.run_jj([
+        "log",
+        "-T",
+        "description",
+        "--search-contains",
+        "invalid:foo",
+    ]);
+    insta::assert_snapshot!(output, @r#"
+    ------- stderr -------
+    Error: Invalid string pattern kind `invalid:`
+    [EOF]
+    [exit status: 1]
+    "#);
+}

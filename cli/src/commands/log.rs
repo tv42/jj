@@ -28,10 +28,13 @@ use jj_lib::graph::GraphEdgeType;
 use jj_lib::graph::TopoGroupedGraph;
 use jj_lib::graph::reverse_graph;
 use jj_lib::repo::Repo as _;
+use jj_lib::revset::DiffMatchSide;
 use jj_lib::revset::RevsetEvaluationError;
 use jj_lib::revset::RevsetExpression;
 use jj_lib::revset::RevsetFilterPredicate;
 use jj_lib::revset::RevsetStreamExt as _;
+use jj_lib::str_util::StringExpression;
+use jj_lib::str_util::StringPattern;
 use pollster::FutureExt as _;
 use tracing::instrument;
 
@@ -40,6 +43,7 @@ use crate::cli_util::LogContentFormat;
 use crate::cli_util::RevisionArg;
 use crate::cli_util::format_template;
 use crate::command_error::CommandError;
+use crate::command_error::user_error;
 use crate::complete;
 use crate::diff_util::DiffFormatArgs;
 use crate::formatter::FormatterExt as _;
@@ -127,6 +131,13 @@ pub(crate) struct LogArgs {
     #[arg(long, conflicts_with_all = ["DiffFormatArgs", "no_graph", "patch", "reversed", "template"])]
     count: bool,
 
+    /// Show revisions where the diff contains the given text
+    ///
+    /// Equivalent to `-r 'diff_lines(PATTERN)'`. Intersected with other
+    /// revision filters if specified.
+    #[arg(long, value_name = "PATTERN")]
+    search_contains: Option<String>,
+
     #[command(flatten)]
     diff_format: DiffFormatArgs,
 }
@@ -143,20 +154,35 @@ pub(crate) async fn cmd_log(
     let fileset_expression = workspace_command.parse_file_patterns(ui, &args.paths)?;
     let mut explicit_paths = fileset_expression.explicit_paths().collect_vec();
     let revset_expression = {
-        // only use default revset if neither revset nor path are specified
-        let mut expression = if args.revisions.is_empty() && args.paths.is_empty() {
-            let revset_string = settings.get_string("revsets.log")?;
-            workspace_command.parse_revset(ui, &RevisionArg::from(revset_string))?
-        } else if !args.revisions.is_empty() {
-            workspace_command.parse_union_revsets(ui, &args.revisions)?
-        } else {
-            // a path was specified so we use all() and add path filter later
-            workspace_command.attach_revset_evaluator(RevsetExpression::all())
-        };
+        // only use default revset if neither revset nor path nor search-contains are specified
+        let mut expression =
+            if args.revisions.is_empty() && args.paths.is_empty() && args.search_contains.is_none()
+            {
+                let revset_string = settings.get_string("revsets.log")?;
+                workspace_command.parse_revset(ui, &RevisionArg::from(revset_string))?
+            } else if !args.revisions.is_empty() {
+                workspace_command.parse_union_revsets(ui, &args.revisions)?
+            } else {
+                // a path or search-contains was specified so we use all() and add filter later
+                workspace_command.attach_revset_evaluator(RevsetExpression::all())
+            };
         if !args.paths.is_empty() {
             // Beware that args.paths = ["root:."] is not identical to []. The
             // former will filter out empty commits.
             let predicate = RevsetFilterPredicate::File(fileset_expression.clone());
+            expression.intersect_with(&RevsetExpression::filter(predicate));
+        }
+        if let Some(pattern) = &args.search_contains {
+            let text = StringExpression::pattern(
+                StringPattern::parse_with_default(pattern, "substring")
+                    .map_err(|err| user_error(err.to_string()))?,
+            );
+            let files = fileset_expression.clone();
+            let predicate = RevsetFilterPredicate::DiffLines {
+                text,
+                files,
+                side: DiffMatchSide::Either,
+            };
             expression.intersect_with(&RevsetExpression::filter(predicate));
         }
         expression
