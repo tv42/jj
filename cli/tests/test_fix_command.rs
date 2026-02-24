@@ -1160,6 +1160,35 @@ fn test_executed_but_nothing_changed() {
 }
 
 #[test]
+fn test_ext_variable() {
+    // Test that $ext is substituted with the file extension.
+    let mut test_env = TestEnvironment::default();
+    set_up_fake_formatter(&mut test_env, &["--tee", "extlog.$ext"]);
+    test_env.run_jj_in(".", ["git", "init", "repo"]).success();
+    let work_dir = test_env.work_dir("repo");
+    work_dir.write_file("file.rs", "hello\n");
+    work_dir.write_file("file.txt", "world\n");
+    work_dir.write_file("noext", "none\n");
+
+    let output = work_dir.run_jj(["fix", "-s", "@"]);
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    Fixed 0 commits of 1 checked.
+    Nothing changed.
+    [EOF]
+    ");
+
+    // Files with extensions get $ext replaced with the extension
+    let rs_log = work_dir.read_file("extlog.rs");
+    insta::assert_snapshot!(rs_log, @"hello");
+    let txt_log = work_dir.read_file("extlog.txt");
+    insta::assert_snapshot!(txt_log, @"world");
+    // Files with no extension get $ext replaced with empty string
+    let no_ext_log = work_dir.read_file("extlog.");
+    insta::assert_snapshot!(no_ext_log, @"none");
+}
+
+#[test]
 fn test_failure() {
     let mut test_env = TestEnvironment::default();
     set_up_fake_formatter(&mut test_env, &["--fail"]);
