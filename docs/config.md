@@ -1370,6 +1370,9 @@ the values have the following properties:
      fixed. It is useful to provide the path to tools that include the path
      in error messages, or behave differently based on the directory or file
      name.
+   - `$ext` will be replaced with the file extension (without the leading
+     dot), or an empty string if the file has no extension. This is useful
+     for tools that need to know the file type but don't accept a full path.
  - `patterns`: List of filesets (see: `jj help -k filesets`), determining
    which files the tool will affect based on their path. If this list is
    empty, no files will be affected by the tool. If there are multiple
@@ -1400,8 +1403,8 @@ the values have the following properties:
 
 `jj fix` provides the file content anonymously on standard input, but the name
 of the file being formatted may be important for include sorting or other output
-like error messages. To address this, you can use the `$root` and `$path` in
-your arguments.
+like error messages. To address this, you can use `$root`, `$path`, and `$ext`
+in your arguments.
 
 ### Enforce coding style rules
 
