@@ -417,7 +417,13 @@ fn run_tool(
     extra_args: &[String],
 ) -> Result<Vec<u8>, ()> {
     let mut vars: HashMap<&str, &str> = HashMap::new();
-    vars.insert("path", file_to_fix.repo_path.as_internal_file_string());
+    let path_str = file_to_fix.repo_path.as_internal_file_string();
+    vars.insert("path", path_str);
+    let ext = Path::new(path_str)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+    vars.insert("ext", ext);
     // TODO: workspace_root.to_str() returns None if the workspace path is not
     // UTF-8, but we ignore that failure so `jj fix` still runs in that
     // situation. Maybe we should do something like substituting bytes instead
