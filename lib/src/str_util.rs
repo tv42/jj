@@ -168,6 +168,19 @@ impl StringPattern {
         Ok(Self::RegexI(pattern))
     }
 
+    /// Parses a `"kind:value"` string, using `default_kind` if there is no
+    /// prefix.
+    pub fn parse_with_default(
+        src: &str,
+        default_kind: &str,
+    ) -> Result<Self, StringPatternParseError> {
+        if let Some((kind, value)) = src.split_once(':') {
+            Self::from_str_kind(value, kind)
+        } else {
+            Self::from_str_kind(src, default_kind)
+        }
+    }
+
     /// Parses the given string as a pattern of the specified `kind`.
     pub fn from_str_kind(src: &str, kind: &str) -> Result<Self, StringPatternParseError> {
         match kind {
